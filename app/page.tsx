@@ -2,11 +2,13 @@
 
 import { DndContext, DragEndEvent } from "@dnd-kit/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { BoardColumn } from "@/components/BoardColumn";
 import { LiveLogPanel } from "@/components/LiveLogPanel";
 import { boardColumns } from "@/lib/board";
 import type { Agent, AgentAction, AgentStatus } from "@/lib/mockAgents";
 import { agentStatusLabels, mockAgents } from "@/lib/mockAgents";
+import type { SkillSummary, ToolSummary } from "@/lib/openclaw";
 
 const priorityOptions = ["all", "Low", "Medium", "High", "Critical"] as const;
 
@@ -31,6 +33,20 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [liveMode, setLiveMode] = useState(false);
+
+  const [tools, setTools] = useState<ToolSummary[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(true);
+  const [skillsLoading, setSkillsLoading] = useState(true);
+  const [toolsError, setToolsError] = useState<string | null>(null);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  const [newAgentName, setNewAgentName] = useState("");
+  const [newAgentModel, setNewAgentModel] = useState("");
+  const [newAgentWorkspace, setNewAgentWorkspace] = useState("");
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [createAgentMessage, setCreateAgentMessage] = useState<string | null>(null);
+  const [createAgentError, setCreateAgentError] = useState<string | null>(null);
 
   const columnStatusMap = useMemo(() => buildColumnStatusMap(), []);
 
@@ -67,11 +83,49 @@ export default function Home() {
     }
   }, []);
 
+  const fetchTools = useCallback(async () => {
+    setToolsLoading(true);
+    setToolsError(null);
+    try {
+      const response = await fetch("/api/tools");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Unable to load tools");
+      }
+      const payload = (await response.json()) as { tools?: ToolSummary[] };
+      setTools(Array.isArray(payload.tools) ? payload.tools : []);
+    } catch (error) {
+      setToolsError(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setToolsLoading(false);
+    }
+  }, []);
+
+  const fetchSkills = useCallback(async () => {
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const response = await fetch("/api/skills");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Unable to load skills");
+      }
+      const payload = (await response.json()) as { skills?: SkillSummary[] };
+      setSkills(Array.isArray(payload.skills) ? payload.skills : []);
+    } catch (error) {
+      setSkillsError(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAgents();
+    fetchTools();
+    fetchSkills();
     const interval = setInterval(fetchAgents, 15_000);
     return () => clearInterval(interval);
-  }, [fetchAgents]);
+  }, [fetchAgents, fetchSkills, fetchTools]);
 
   const handleAgentAction = useCallback(
     async (agentId: string, action: AgentAction) => {
@@ -123,6 +177,49 @@ export default function Home() {
     );
   };
 
+  const handleCreateAgent = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const name = newAgentName.trim();
+      if (!name) {
+        setCreateAgentError("Name is required");
+        return;
+      }
+
+      setCreatingAgent(true);
+      setCreateAgentMessage(null);
+      setCreateAgentError(null);
+
+      try {
+        const response = await fetch("/api/agents/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            model: newAgentModel.trim() || undefined,
+            workspace: newAgentWorkspace.trim() || undefined,
+          }),
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Failed to create agent");
+        }
+
+        setCreateAgentMessage(`Agent created: ${name}`);
+        setNewAgentName("");
+        setNewAgentModel("");
+        setNewAgentWorkspace("");
+        fetchAgents();
+      } catch (error) {
+        setCreateAgentError(error instanceof Error ? error.message : "unknown error");
+      } finally {
+        setCreatingAgent(false);
+      }
+    },
+    [newAgentModel, newAgentName, newAgentWorkspace, fetchAgents]
+  );
+
   const skillOptions = useMemo(
     () => ["all", ...Array.from(new Set(agents.map((agent) => agent.skill))).sort()],
     [agents]
@@ -160,9 +257,7 @@ export default function Home() {
 
   const columns = boardColumns.map((column) => ({
     ...column,
-    agents: filteredAgents.filter((agent) =>
-      column.statuses.includes(agent.status)
-    ),
+    agents: filteredAgents.filter((agent) => column.statuses.includes(agent.status)),
   }));
 
   const runningCount = agents.filter((agent) => agent.status === "running").length;
@@ -183,8 +278,7 @@ export default function Home() {
               Kanban control center for every agent.
             </h1>
             <p className="max-w-2xl text-base text-slate-600">
-              Monitor live work, reroute congested queues, and trigger actions directly from
-              the board. Each column maps to a state so you can prioritize human reviews and escalations.
+              Monitor live work, reroute congested queues, and trigger actions directly from the board. Each column maps to a state so you can prioritize human reviews and escalations.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -324,6 +418,139 @@ export default function Home() {
 
         <section>
           <LiveLogPanel />
+        </section>
+
+        <section className="grid gap-6 rounded-3xl border border-slate-200 bg-white/70 p-5 shadow-sm lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <div>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Tools</p>
+                <h2 className="text-xl font-semibold text-slate-900">Available OpenClaw tools</h2>
+              </div>
+              <button
+                type="button"
+                onClick={fetchTools}
+                className="rounded-2xl border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-400"
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="mt-4 space-y-3 text-sm text-slate-700">
+              {toolsLoading ? (
+                <p>Loading tools…</p>
+              ) : toolsError ? (
+                <p className="text-rose-500">{toolsError}</p>
+              ) : tools.length === 0 ? (
+                <p>No tools detected.</p>
+              ) : (
+                <ul className="grid gap-3 sm:grid-cols-2">
+                  {tools.slice(0, 12).map((tool) => (
+                    <li
+                      key={tool.command}
+                      className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 shadow-sm"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
+                        {tool.command}
+                      </p>
+                      <p className="text-xs text-slate-500">{tool.description}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Skills</p>
+                <button
+                  type="button"
+                  onClick={fetchSkills}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-400"
+                >
+                  Refresh
+                </button>
+              </div>
+              <h3 className="mt-1 text-lg font-semibold text-slate-900">Installed skills</h3>
+              <div className="mt-4 space-y-3 text-sm text-slate-700">
+                {skillsLoading ? (
+                  <p>Loading skills…</p>
+                ) : skillsError ? (
+                  <p className="text-rose-500">{skillsError}</p>
+                ) : skills.length === 0 ? (
+                  <p>No skills detected.</p>
+                ) : (
+                  <ul className="max-h-[320px] space-y-2 overflow-y-auto">
+                    {skills.slice(0, 10).map((skill) => (
+                      <li key={skill.name} className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                          <span>{skill.emoji ?? "🧠"}</span>
+                          <span>{skill.name}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.2em] ${
+                              skill.eligible ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"
+                            }`}
+                          >
+                            {skill.eligible ? "Ready" : "Missing"
+                            }
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">{skill.description}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-900 to-slate-800 p-4 text-white shadow-lg">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-300">Create an agent</p>
+              <h3 className="mt-1 text-lg font-semibold">Spin up a new agent</h3>
+              <form onSubmit={handleCreateAgent} className="mt-4 space-y-3">
+                <label className="block text-xs uppercase tracking-[0.3em] text-slate-300">
+                  Name
+                  <input
+                    value={newAgentName}
+                    onChange={(event) => setNewAgentName(event.target.value)}
+                    placeholder="agent-name"
+                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-white/10 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+                  />
+                </label>
+                <label className="block text-xs uppercase tracking-[0.3em] text-slate-300">
+                  Model (optional)
+                  <input
+                    value={newAgentModel}
+                    onChange={(event) => setNewAgentModel(event.target.value)}
+                    placeholder="model id"
+                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-white/10 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+                  />
+                </label>
+                <label className="block text-xs uppercase tracking-[0.3em] text-slate-300">
+                  Workspace path (optional)
+                  <input
+                    value={newAgentWorkspace}
+                    onChange={(event) => setNewAgentWorkspace(event.target.value)}
+                    placeholder="/absolute/path/to/workspace"
+                    className="mt-1 w-full rounded-2xl border border-slate-700 bg-white/10 px-3 py-2 text-sm text-white focus:border-white focus:outline-none"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={creatingAgent || !newAgentName.trim()}
+                  className="w-full rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {creatingAgent ? "Creating…" : "Create agent"}
+                </button>
+              </form>
+              {createAgentMessage && (
+                <p className="mt-2 text-xs text-emerald-200">{createAgentMessage}</p>
+              )}
+              {createAgentError && (
+                <p className="mt-2 text-xs text-rose-200">{createAgentError}</p>
+              )}
+            </div>
+          </div>
         </section>
       </main>
     </div>
