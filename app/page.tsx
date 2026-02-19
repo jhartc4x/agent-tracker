@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { BoardColumn } from "@/components/BoardColumn";
+import { LiveLogPanel } from "@/components/LiveLogPanel";
 import { boardColumns } from "@/lib/board";
 import {
   AgentAction,
@@ -222,6 +223,10 @@ export default function Home() {
               />
             ))}
           </div>
+        </section>
+
+        <section>
+          <LiveLogPanel />
         </section>
       </main>
     </div>
