@@ -11,13 +11,6 @@ const statusColorMap: Record<AgentStatus, string> = {
   completed: "bg-zinc-100 text-zinc-600",
 };
 
-const priorityColor: Record<Agent["priority"], string> = {
-  Low: "bg-slate-100 text-slate-700",
-  Medium: "bg-amber-100 text-amber-700",
-  High: "bg-pink-100 text-pink-700",
-  Critical: "bg-rose-100 text-rose-700",
-};
-
 const actionDefinitions: Record<AgentStatus, AgentAction[]> = {
   backlog: ["start", "escalate"],
   ready: ["start", "cancel"],
@@ -49,71 +42,50 @@ interface AgentCardProps {
   onAction: (agentId: string, action: AgentAction) => void;
 }
 
+const trim = (value: string, length: number) =>
+  value.length <= length ? value : `${value.slice(0, length).trim()}…`;
+
 export const AgentCard = ({ agent, onAction }: AgentCardProps) => {
   const actions = actionDefinitions[agent.status];
+  const summary = trim(agent.summary, 90);
 
   return (
-    <article className="space-y-3 rounded-2xl border border-zinc-200 bg-white/60 p-4 shadow-sm">
+    <article className="space-y-3 rounded-2xl border border-zinc-200 bg-gradient-to-br from-white via-white/90 to-slate-50 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-base font-semibold text-slate-900">{agent.name}</p>
-          <p className="text-sm text-slate-500">{agent.summary}</p>
+          <p className="text-sm text-slate-500">{summary}</p>
         </div>
         <span
           className={clsx(
-            "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide",
+            "rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em]",
             statusColorMap[agent.status]
           )}
         >
           {agentStatusLabels[agent.status]}
         </span>
       </div>
-      <div className="flex flex-wrap gap-2 text-xs">
-        <span
-          className={clsx(
-            "rounded-full px-2.5 py-0.5 font-semibold tracking-tight",
-            priorityColor[agent.priority]
-          )}
-        >
-          Priority · {agent.priority}
-        </span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-slate-600">
-          Skill · {agent.skill}
-        </span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-slate-600">
-          Node · {agent.node}
-        </span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-slate-600">
-          Owner · {agent.owner}
-        </span>
+      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500">
+        <p>Priority · {agent.priority}</p>
+        <p>Skill · {agent.skill}</p>
+        <p>Node · {agent.node}</p>
+        <p>Owner · {agent.owner}</p>
       </div>
-      <div className="flex flex-wrap gap-2 text-xs">
-        {agent.tags.map((tag) => (
-          <span
-            key={tag}
-            className="rounded-full bg-slate-200 px-2.5 py-0.5 text-slate-600"
-          >
-            #{tag}
-          </span>
-        ))}
+      <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-500">
+        <p>Last run · {new Date(agent.lastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+        <p>Next run · {new Date(agent.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+        <p>Target · {agent.target}</p>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
-        <p>
-          Last run · <span className="text-slate-800">{new Date(agent.lastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-        </p>
-        <p>
-          Next run · <span className="text-slate-800">{new Date(agent.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-        <div className="flex gap-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+        <div className="flex gap-1">
           <span className="font-semibold text-slate-900">{agent.telemetry.success}%</span>
-          <span>Succ</span>
+          <span>succ</span>
           <span className="font-semibold text-slate-900">{agent.telemetry.failure}</span>
-          <span>Fail</span>
-          <span>{agent.telemetry.runTime}</span>
+          <span>fail</span>
         </div>
-        <p className="text-xs text-slate-500">Target · {agent.target}</p>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+          {agent.telemetry.runTime}
+        </span>
       </div>
       <div className="flex flex-wrap gap-2">
         {actions.map((action) => (
