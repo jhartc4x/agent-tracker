@@ -1,7 +1,9 @@
 "use client";
 
+import { useDroppable } from "@dnd-kit/core";
+import clsx from "clsx";
 import type { AgentAction, Agent } from "@/lib/mockAgents";
-import { AgentCard } from "./AgentCard";
+import { DraggableAgentCard } from "./DraggableAgentCard";
 import type { BoardColumnConfig } from "@/lib/board";
 
 interface BoardColumnProps {
@@ -11,8 +13,17 @@ interface BoardColumnProps {
 }
 
 export const BoardColumn = ({ column, agents, onAction }: BoardColumnProps) => {
+  const { isOver, setNodeRef } = useDroppable({ id: column.id });
+
   return (
-    <section className="flex min-h-[280px] flex-1 flex-col gap-4 rounded-[2rem] border border-zinc-200 bg-white/80 p-4 shadow-sm backdrop-blur">
+    <section
+      ref={setNodeRef}
+      className={clsx(
+        "flex min-h-[320px] flex-1 flex-col gap-4 rounded-[2rem] border bg-white/80 p-4 shadow-sm backdrop-blur transition",
+        "border-zinc-200",
+        isOver && "border-slate-400 bg-slate-50"
+      )}
+    >
       <header className="flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -29,7 +40,7 @@ export const BoardColumn = ({ column, agents, onAction }: BoardColumnProps) => {
           </div>
         ) : (
           agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} onAction={onAction} />
+            <DraggableAgentCard key={agent.id} agent={agent} onAction={onAction} />
           ))
         )}
       </div>

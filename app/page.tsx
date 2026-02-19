@@ -1,33 +1,26 @@
 "use client";
 
+import { DndContext, DragEndEvent } from "@dnd-kit/core";
 import { useMemo, useState } from "react";
 import { BoardColumn } from "@/components/BoardColumn";
 import { LiveLogPanel } from "@/components/LiveLogPanel";
 import { boardColumns } from "@/lib/board";
-import {
-  AgentAction,
-  AgentStatus,
-  agentStatusLabels,
-  mockAgents,
-} from "@/lib/mockAgents";
-
-const skillOptions = [
-  "all",
-  ...Array.from(new Set(mockAgents.map((agent) => agent.skill))).sort(),
-];
-
-const nodeOptions = [
-  "all",
-  ...Array.from(new Set(mockAgents.map((agent) => agent.node))).sort(),
-];
-
-const statusOptions: AgentStatus[] = [
-  ...Object.keys(agentStatusLabels) as AgentStatus[],
-];
+import type { Agent, AgentAction, AgentStatus } from "@/lib/mockAgents";
+import { agentStatusLabels, mockAgents } from "@/lib/mockAgents";
 
 const priorityOptions = ["all", "Low", "Medium", "High", "Critical"] as const;
 
+const buildColumnStatusMap = () => {
+  return boardColumns.reduce<Record<string, AgentStatus>>((acc, column) => {
+    if (column.statuses.length > 0) {
+      acc[column.id] = column.statuses[0];
+    }
+    return acc;
+  }, {});
+};
+
 export default function Home() {
+  const [agents, setAgents] = useState<Agent[]>(mockAgents);
   const [searchTerm, setSearchTerm] = useState("");
   const [skillFilter, setSkillFilter] = useState("all");
   const [nodeFilter, setNodeFilter] = useState("all");
@@ -35,10 +28,22 @@ export default function Home() {
   const [statusFilter, setStatusFilter] = useState<AgentStatus | "all">("all");
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
 
+  const columnStatusMap = useMemo(() => buildColumnStatusMap(), []);
+
+  const skillOptions = useMemo(
+    () => ["all", ...Array.from(new Set(agents.map((agent) => agent.skill))).sort()],
+    [agents]
+  );
+
+  const nodeOptions = useMemo(
+    () => ["all", ...Array.from(new Set(agents.map((agent) => agent.node))).sort()],
+    [agents]
+  );
+
   const filteredAgents = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    return mockAgents.filter((agent) => {
+    return agents.filter((agent) => {
       if (skillFilter !== "all" && agent.skill !== skillFilter) return false;
       if (nodeFilter !== "all" && agent.node !== nodeFilter) return false;
       if (priorityFilter !== "all" && agent.priority !== priorityFilter) return false;
@@ -58,7 +63,7 @@ export default function Home() {
 
       return haystack.includes(normalizedSearch);
     });
-  }, [searchTerm, skillFilter, nodeFilter, priorityFilter, statusFilter]);
+  }, [agents, searchTerm, skillFilter, nodeFilter, priorityFilter, statusFilter]);
 
   const columns = boardColumns.map((column) => ({
     ...column,
@@ -67,12 +72,12 @@ export default function Home() {
     ),
   }));
 
-  const runningCount = mockAgents.filter((agent) => agent.status === "running").length;
-  const completedCount = mockAgents.filter((agent) => agent.status === "completed").length;
-  const pausedCount = mockAgents.filter((agent) => agent.status === "paused").length;
-  const criticalAgents = mockAgents.filter(
-    (agent) => agent.priority === "Critical"
-  ).length;
+  const runningCount = agents.filter((agent) => agent.status === "running").length;
+  const completedCount = agents.filter((agent) => agent.status === "completed").length;
+  const pausedCount = agents.filter((agent) => agent.status === "paused").length;
+  const criticalAgents = agents.filter((agent) => agent.priority === "Critical").length;
+
+  const totalAgents = agents.length;
 
   const handleAgentAction = (agentId: string, action: AgentAction) => {
     console.log(`Action (${action}) requested for agent ${agentId}`);
@@ -80,6 +85,24 @@ export default function Home() {
 
   const handleRefresh = () => {
     setLastRefresh(new Date());
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || !active) return;
+    const targetStatus = columnStatusMap[over.id as string];
+    if (!targetStatus) return;
+
+    setAgents((current) =>
+      current.map((agent) =>
+        agent.id === active.id
+          ? {
+              ...agent,
+              status: targetStatus,
+            }
+          : agent
+      )
+    );
   };
 
   return (
@@ -128,7 +151,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-            <span>{mockAgents.length} total agents</span>
+            <span>{totalAgents} total agents</span>
             <span className="h-1 w-1 rounded-full bg-slate-400" aria-hidden />
             <span>{criticalAgents} critical</span>
             <span className="h-1 w-1 rounded-full bg-slate-400" aria-hidden />
@@ -202,9 +225,9 @@ export default function Home() {
                 className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
               >
                 <option value="all">All states</option>
-                {statusOptions.map((status) => (
+                {Object.entries(agentStatusLabels).map(([status, label]) => (
                   <option key={status} value={status}>
-                    {agentStatusLabels[status]}
+                    {label}
                   </option>
                 ))}
               </select>
@@ -213,16 +236,18 @@ export default function Home() {
         </section>
 
         <section className="grid gap-6">
-          <div className="grid gap-5 lg:grid-cols-2">
-            {columns.map((column) => (
-              <BoardColumn
-                key={column.id}
-                column={column}
-                agents={column.agents}
-                onAction={handleAgentAction}
-              />
-            ))}
-          </div>
+          <DndContext onDragEnd={handleDragEnd}>
+            <div className="grid gap-5 lg:grid-cols-5">
+              {columns.map((column) => (
+                <BoardColumn
+                  key={column.id}
+                  column={column}
+                  agents={column.agents}
+                  onAction={handleAgentAction}
+                />
+              ))}
+            </div>
+          </DndContext>
         </section>
 
         <section>
