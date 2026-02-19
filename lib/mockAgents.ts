@@ -34,6 +34,8 @@ export interface Agent {
   lastResult: string;
 }
 
+export type AgentPriority = Agent["priority"];
+
 export const agentStatusLabels: Record<AgentStatus, string> = {
   backlog: "Backlog",
   ready: "Queued",

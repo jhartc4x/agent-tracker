@@ -1,7 +1,7 @@
 "use client";
 
 import { DndContext, DragEndEvent } from "@dnd-kit/core";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BoardColumn } from "@/components/BoardColumn";
 import { LiveLogPanel } from "@/components/LiveLogPanel";
 import { boardColumns } from "@/lib/board";
@@ -27,8 +27,101 @@ export default function Home() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AgentStatus | "all">("all");
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
+  const [isFetching, setIsFetching] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [liveMode, setLiveMode] = useState(false);
 
   const columnStatusMap = useMemo(() => buildColumnStatusMap(), []);
+
+  const fetchAgents = useCallback(async () => {
+    setIsFetching(true);
+    try {
+      const response = await fetch("/api/agents");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Unable to load agents");
+      }
+
+      const payload = (await response.json()) as { agents?: Agent[] };
+      const normalized = (
+        Array.isArray(payload.agents)
+          ? payload.agents
+          : Array.isArray(payload)
+          ? payload
+          : []
+      ) as Agent[];
+
+      if (normalized.length) {
+        setAgents(normalized);
+        setLiveMode(true);
+        setErrorMessage(null);
+      }
+
+      setLastRefresh(new Date());
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unknown error");
+      setLiveMode(false);
+    } finally {
+      setIsFetching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 15_000);
+    return () => clearInterval(interval);
+  }, [fetchAgents]);
+
+  const handleAgentAction = useCallback(
+    async (agentId: string, action: AgentAction) => {
+      setActionStatus(`Sending ${action} to ${agentId}...`);
+      try {
+        const response = await fetch(`/api/agents/${agentId}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error ?? "Action failed");
+        }
+
+        await response.json();
+        setActionStatus(`Action queued: ${action}`);
+        await fetchAgents();
+      } catch (error) {
+        setActionStatus(
+          `Failed to ${action}: ${error instanceof Error ? error.message : "unknown"}`
+        );
+      }
+    },
+    [fetchAgents]
+  );
+
+  const handleRefresh = () => {
+    setLastRefresh(new Date());
+    fetchAgents();
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || !active) return;
+    const targetStatus = columnStatusMap[over.id as string];
+    if (!targetStatus) return;
+
+    setAgents((current) =>
+      current.map((agent) =>
+        agent.id === active.id
+          ? {
+              ...agent,
+              status: targetStatus,
+            }
+          : agent
+      )
+    );
+  };
 
   const skillOptions = useMemo(
     () => ["all", ...Array.from(new Set(agents.map((agent) => agent.skill))).sort()],
@@ -76,34 +169,7 @@ export default function Home() {
   const completedCount = agents.filter((agent) => agent.status === "completed").length;
   const pausedCount = agents.filter((agent) => agent.status === "paused").length;
   const criticalAgents = agents.filter((agent) => agent.priority === "Critical").length;
-
   const totalAgents = agents.length;
-
-  const handleAgentAction = (agentId: string, action: AgentAction) => {
-    console.log(`Action (${action}) requested for agent ${agentId}`);
-  };
-
-  const handleRefresh = () => {
-    setLastRefresh(new Date());
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || !active) return;
-    const targetStatus = columnStatusMap[over.id as string];
-    if (!targetStatus) return;
-
-    setAgents((current) =>
-      current.map((agent) =>
-        agent.id === active.id
-          ? {
-              ...agent,
-              status: targetStatus,
-            }
-          : agent
-      )
-    );
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100">
@@ -132,6 +198,12 @@ export default function Home() {
             <p className="text-sm text-slate-500">
               Last refreshed at {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>{liveMode ? "Live OpenClaw stream" : "Using cached mock data"}</span>
+            {isFetching && <span>Refreshing…</span>}
+            {errorMessage && <span className="text-rose-500">{errorMessage}</span>}
+            {actionStatus && <span className="text-slate-600">{actionStatus}</span>}
           </div>
         </header>
 

@@ -13,9 +13,16 @@ Open [http://localhost:3000](http://localhost:3000) to explore the live dashboar
 
 ## Next Steps
 
-- Wire the board to `openclaw agents list --json` so the columns reflect live state
-- Add API routes that call `openclaw agents action` for each card control
 - Persist column preferences and auto-refresh behavior in localStorage or a lightweight cache
 - Surface a live log stream (like the new Live Log panel) so you can see the CLI/agent activity happening behind the scenes as you interact
+
+## Backend
+
+The app now exposes two API routes that proxy to the local `openclaw` CLI:
+
+- `GET /api/agents` → runs `openclaw agents list --json` and normalizes the output into the dashboard schema
+- `POST /api/agents/:agentId/actions` → accepts `{ action: string }` and runs `openclaw agents action --agent-id <agentId> --action <action>`
+
+The backend expects `openclaw` to be in `PATH` (or set `OPENCLAW_BIN`). Errors surface in the UI so you can tell when the CLI isn’t available.
 
 See `Kanban-Plan.md` for the architecture, UX, and OpenClaw integration strategy.
